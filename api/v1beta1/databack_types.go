@@ -17,7 +17,6 @@ limitations under the License.
 package v1beta1
 
 import (
-	"golang.org/x/text/date"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -45,7 +44,7 @@ type DatabackSpec struct {
 
 	// foo is an example field of Databack. Edit databack_types.go to remove/update
 	// +optional
-	// Foo *string `json:"foo,omitempty"`
+	Foo *string `json:"foo,omitempty"`
 	//是否开启备份任务
 	Enable bool `json:"enable"`
 	//开始备份时间
