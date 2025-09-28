@@ -1,0 +1,10 @@
+apiVersion: operator.molido.com/v1beta1
+kind: Databack
+metadata:
+  labels:
+    app.kubernetes.io/name: databack-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: databack-sample
+spec:
+  # TODO(user): Add fields here
+  foo: "bar"
