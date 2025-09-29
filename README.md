@@ -74,3 +74,10 @@ make docker-build IMG=localhost:30002/operator/databack:v1beta1
 ```bash
 make deploy IMG=localhost:30002/operator/databack:v1beta1
 ```
+
+##正式对外提供
+导出对外提供服务的资源文件
+```bash
+mkdir publish
+/root/databack-operator/bin/kustomize build ../config/default > databack-operator.yaml
+```
