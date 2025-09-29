@@ -22,63 +22,42 @@ import (
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-type Origin struct{
+type Origin struct {
 	//数据库访问地址
 	Host string `json:"host"`
 	//数据库端口
-	Port int32 `json:"port"`
+	Port     int32  `json:"port"`
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
-type Destination struct{
-	Endpoint string `json:"endpoint"`
+// 目标地址
+type Destination struct {
+	Endpoint     string `json:"endpoint"`
+	AccessKey    string `json:"accessKey"`
+	AccessSecret string `json:"accessSecret"`
+	BuketName    string `json:"buketName"`
 }
 
 // DatabackSpec defines the desired state of Databack
 type DatabackSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// foo is an example field of Databack. Edit databack_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
 	//是否开启备份任务
 	Enable bool `json:"enable"`
-	//开始备份时间
+	//数据备份开始备份时间 12:00
 	StartTime string `json:"startTime"`
 	//数据源
-	Origin string `json:"origin"`
+	Origin Origin `json:"origin"`
 	//备份目标地址
-	Destination string `json:"destination"`
-    //间隔周期（分钟）
+	Destination Destination `json:"destination"`
+	//间隔周期（分钟）
 	Period int `json:"period"`
-
 }
 
 // DatabackStatus defines the observed state of Databack.
 type DatabackStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
-	// conditions represent the current state of the Databack resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
-	// +listType=map
-	// +listMapKey=type
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Active           bool   `json:"active"`
+	NextTime         int64  `json:"nextTime"`
+	LastBackupResult string `json:"lastBackupResult"`
 }
 
 // +kubebuilder:object:root=true
@@ -99,7 +78,6 @@ type Databack struct {
 	// status defines the observed state of Databack
 	// +optional
 	Status DatabackStatus `json:"status,omitempty,omitzero"`
-
 }
 
 // +kubebuilder:object:root=true

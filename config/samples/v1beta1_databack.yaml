@@ -6,5 +6,17 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: databack-sample
 spec:
-  # TODO(user): Add fields here
-  foo: "bar"
+  enable: true
+  startTime: "10:21"
+  period: 2
+  origin:
+    host: "mysql-service.default.svc.cluster.local"
+    # host: "10.43.188.50"
+    port: 3306
+    username: "root"
+    password: "MyRootPass123"
+  destination:
+    endpoint: ""
+    accessKey: ""
+    accessSecret: ""
+    buketName: ""

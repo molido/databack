@@ -224,12 +224,12 @@ var _ = Describe("Manager", Ordered, func() {
 							"command": ["/bin/sh", "-c"],
 							"args": ["curl -v -k -H 'Authorization: Bearer %s' https://%s.%s.svc.cluster.local:8443/metrics"],
 							"securityContext": {
-								"readOnlyRootFilesystem": true,
+								"readOnlyRootFilesystem": false,
 								"allowPrivilegeEscalation": false,
 								"capabilities": {
 									"drop": ["ALL"]
 								},
-								"runAsNonRoot": true,
+								"runAsNonRoot": false,
 								"runAsUser": 1000,
 								"seccompProfile": {
 									"type": "RuntimeDefault"

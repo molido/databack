@@ -19,8 +19,18 @@ package controller
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"reflect"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -31,34 +41,192 @@ import (
 // DatabackReconciler reconciles a Databack object
 type DatabackReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme      *runtime.Scheme
+	BackupQueue map[string]operatormolidocomv1beta1.Databack
+	Wg          sync.WaitGroup
+	Tickers     []*time.Ticker
+	lock        sync.RWMutex
 }
 
-// +kubebuilder:rbac:groups=operator.molido.com,resources=databacks,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=operator.molido.com,resources=databacks/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=operator.molido.com,resources=databacks/finalizers,verbs=update
-
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Databack object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *DatabackReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = logf.FromContext(ctx)
 
-	// TODO(user): your logic here
-	fmt.Println("Hello world")
+	fmt.Println("Hello world Reconcile")
 
-	logger := logf.FromContext(ctx)
+	//find resource
 
-    logger.Info("Hello world", "name", req.NamespacedName)
+	var databackK8s operatormolidocomv1beta1.Databack
+	err := r.Client.Get(ctx, req.NamespacedName, &databackK8s)
+	if err != nil {
+		fmt.Println("Get from k8s")
 
+		if errors.IsNotFound(err) {
+			//todo delete
+			r.DeleteQueue(databackK8s)
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
+	}
 
+	if lastDataback, ok := r.BackupQueue[databackK8s.Name]; ok {
+		isEqual := reflect.DeepEqual(lastDataback.Spec, databackK8s.Spec)
+		if isEqual {
+			return ctrl.Result{}, nil
+		}
+	}
+	//todo create/update
+	r.AddQueue(databackK8s)
 	return ctrl.Result{}, nil
+}
+
+func (r *DatabackReconciler) StopLoop() {
+	for _, ticker := range r.Tickers {
+		if ticker != nil {
+			ticker.Stop()
+		}
+	}
+
+}
+func (r *DatabackReconciler) StartLoop() {
+	for _, databack := range r.BackupQueue {
+		if !databack.Spec.Enable {
+			databack.Status.Active = false
+			r.UpdateStatus(databack)
+			continue
+		}
+		delay := r.getDelaySeconds(databack.Spec.StartTime)
+		fmt.Println("Start Loop")
+		databack.Status.Active = true
+		nextTime := r.getNextTime(delay.Seconds())
+		databack.Status.NextTime = nextTime.Unix()
+		r.UpdateStatus(databack)
+		ticker := time.NewTicker(time.Duration(delay))
+		r.Tickers = append(r.Tickers, ticker)
+		r.Wg.Add(1)
+		go func(databack operatormolidocomv1beta1.Databack) {
+			for {
+				<-ticker.C
+				//backup
+				//reset ticker
+				ticker.Reset(time.Duration(databack.Spec.Period) * time.Minute)
+				databack.Status.Active = true
+				databack.Status.NextTime = r.getNextTime(float64(databack.Spec.Period) * 60).Unix()
+				err := r.DumpMySql(databack)
+				if err != nil {
+					databack.Status.LastBackupResult = fmt.Sprintf("databack failed %v", err)
+					fmt.Printf("databack failed %v\n", err)
+				} else {
+					databack.Status.LastBackupResult = "databack successful"
+					fmt.Println("databack successful")
+				}
+				r.UpdateStatus(databack)
+			}
+		}(databack)
+
+	}
+	r.Wg.Wait()
+
+}
+
+func (r *DatabackReconciler) getDelaySeconds(startTime string) time.Duration {
+	times := strings.Split(startTime, ":")
+	expectedHour, _ := strconv.Atoi(times[0])
+	expectedMin, _ := strconv.Atoi(times[1])
+	now := time.Now().Truncate(time.Second)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayEnd := todayStart.Add(24 * time.Hour)
+	var seconds int
+	expectedDuration := time.Hour*time.Duration(expectedHour) + time.Minute*time.Duration(expectedMin)
+	curDuration := time.Hour*time.Duration(now.Hour()) + time.Minute*time.Duration(now.Minute())
+	if curDuration >= expectedDuration {
+		//tomorrow
+		seconds = int(todayEnd.Add(expectedDuration).Sub(now).Seconds())
+	} else {
+		//today
+		seconds = int(todayStart.Add(expectedDuration).Sub(now).Seconds())
+	}
+	return time.Duration(seconds)
+}
+
+func (r *DatabackReconciler) DeleteQueue(databack operatormolidocomv1beta1.Databack) {
+	delete(r.BackupQueue, databack.Name)
+	r.StartLoop()
+	go r.StartLoop()
+}
+
+func (r *DatabackReconciler) AddQueue(databack operatormolidocomv1beta1.Databack) {
+	if r.BackupQueue == nil {
+		r.BackupQueue = make(map[string]operatormolidocomv1beta1.Databack)
+	}
+	r.BackupQueue[databack.Name] = databack
+	r.StartLoop()
+	go r.StartLoop()
+
+}
+
+func (r *DatabackReconciler) UpdateStatus(backup operatormolidocomv1beta1.Databack) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	ctx := context.TODO()
+	namespacedName := types.NamespacedName{
+		Name:      backup.Name,
+		Namespace: backup.Namespace,
+	}
+	var dataBackupK8s operatormolidocomv1beta1.Databack
+	err := r.Get(ctx, namespacedName, &dataBackupK8s)
+	if err != nil {
+		return
+	}
+
+	dataBackupK8s.Status = backup.Status
+	err = r.Client.Status().Update(ctx, &dataBackupK8s)
+	if err != nil {
+		return
+	}
+
+}
+
+// getNextTime 根据周期(秒)计算下次执行时间
+func (r *DatabackReconciler) getNextTime(periodSeconds float64) time.Time {
+	now := time.Now()
+	return now.Add(time.Duration(periodSeconds) * time.Second)
+}
+
+func (r *DatabackReconciler) DumpMySql(backup operatormolidocomv1beta1.Databack) error {
+	host := backup.Spec.Origin.Host
+	port := backup.Spec.Origin.Port
+	name := backup.Spec.Origin.Username
+	pw := backup.Spec.Origin.Password
+	now := time.Now()
+	fmt.Println("DumpMySql Start")
+	backupDate := fmt.Sprintf("%02d-%02d", now.Month(), now.Day())
+	folderPath := fmt.Sprintf("/tmp/%s/%s/", backup.Name, backupDate)
+	if _, err := os.Stat(folderPath); err != nil {
+		if errx := os.MkdirAll(folderPath, 0700); errx == nil {
+			fmt.Println("创建目录成功")
+		} else {
+			fmt.Printf("创建目录失败: %v\n", errx)
+			return errx
+		}
+	}
+	//计算当天同步的文件个数
+	files, err := ioutil.ReadDir(folderPath)
+	if err != nil {
+		return err
+	}
+	number := len(files) + 1
+	filename := fmt.Sprintf("%s%s#%d.sql", folderPath, backup.Name, number)
+	dumpCmd := fmt.Sprintf("mysqldump -h%s -P%d -u%s -p%s --all-databases > %s", host, port, name, pw, filename)
+	command := exec.Command("bash", "-c", dumpCmd)
+	fmt.Printf("dumpCmd %v\n", dumpCmd)
+	_, err = command.Output() // 执行命令并获取输出
+	if err != nil {
+		fmt.Printf("Backup failed: %v\n", err)
+		return err
+	}
+	fmt.Printf("DumpMySQL success %v", dumpCmd)
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

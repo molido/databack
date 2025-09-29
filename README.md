@@ -48,3 +48,29 @@ kubectl apply -f config/samples/v1beat1_databack.yaml
 
 ##项目开发
 
+###定义CRD
+修改： /api/v1beta1/databack_types.go
+
+```bash
+make generate
+```
+卸载CRD
+```bash
+make uninstall
+```
+安装CRD
+```bash
+make install
+```
+
+实现controller/databack_controller.go 逻辑
+
+打包operator
+```bash
+make docker-build IMG=localhost:30002/operator/databack:v1beta1
+```
+
+发布operator
+```bash
+make deploy IMG=localhost:30002/operator/databack:v1beta1
+```

@@ -27,9 +27,16 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o ma
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM debian:bullseye-slim
+
+# 安装 default-mysql-client（包含 mysqldump）和必要的依赖
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends default-mysql-client && \
+    # 清理缓存，减小镜像体积
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 WORKDIR /
 COPY --from=builder /workspace/manager .
-USER 65532:65532
+# USER 65532:65532
 
 ENTRYPOINT ["/manager"]
